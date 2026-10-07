@@ -299,6 +299,23 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
     _fibre.text = _plain(v.fibreG);
   }
 
+  /// Fill the form from a past entry. The label is already set by the
+  /// autocomplete; this carries the macros the entry was logged with. A past
+  /// entry is the user's own, so every number it carries is copied verbatim —
+  /// a barcode-sourced entry keeps its barcode provenance via `foodKey`.
+  /// Nulls are left alone: an entry logged without fibre keeps the current
+  /// fibre value rather than erasing a typed figure.
+  void _fillFromPast(FoodEntry entry) {
+    _scanned = null;
+    _outcome = null;
+    _label.text = entry.label;
+    if (entry.kcal != null) _kcal.text = _plain(entry.kcal);
+    if (entry.proteinG != null) _protein.text = _plain(entry.proteinG);
+    if (entry.carbsG != null) _carbs.text = _plain(entry.carbsG);
+    if (entry.fatG != null) _fat.text = _plain(entry.fatG);
+    if (entry.fibreG != null) _fibre.text = _plain(entry.fibreG);
+  }
+
   /// The number fields that were typed into and cannot be read.
   List<String> _unreadable(BuildContext c) {
     final l = AppLocalizations.of(c);
@@ -462,10 +479,9 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
                 _lookupProblem(c)!,
               ],
               const SizedBox(height: S.x4),
-              OsTextField(
+              _LabelAutocomplete(
                 controller: _label,
-                label: l?.logFoodWhatLabel ?? 'What',
-                hint: l?.logFoodWhatHint ?? 'Chicken and rice',
+                onSelected: (entry) => _fillFromPast(entry),
               ),
               if (_scanned != null) ...[
                 const SizedBox(height: S.x4),
@@ -706,6 +722,200 @@ class _Link extends StatelessWidget {
           ),
         ),
       );
+}
+
+/// The "What" field with autocomplete. Combines past logged entries (from
+/// `food_entry`) with dictionary entries (from `food_def`, populated by barcode
+/// scans). Past entries rank first — they are the user's own words, not crowd-
+/// sourced labels. Selecting a suggestion fills the label AND the macro fields
+/// the original entry carried, so a repeat meal is one tap.
+///
+/// The dropdown is a Material `RawAutocomplete` overlay rather than an inline
+/// list: the sheet scrolls, and an inline list would shift the number fields
+/// around as the user types.
+class _LabelAutocomplete extends StatefulWidget {
+  const _LabelAutocomplete({
+    required this.controller,
+    required this.onSelected,
+  });
+
+  final TextEditingController controller;
+  final void Function(FoodEntry) onSelected;
+
+  @override
+  State<_LabelAutocomplete> createState() => _LabelAutocompleteState();
+}
+
+class _LabelAutocompleteState extends State<_LabelAutocomplete> {
+  final _focus = FocusNode();
+
+  @override
+  void dispose() {
+    _focus.dispose();
+    super.dispose();
+  }
+
+  /// Load suggestions from both sources. Past entries rank above dictionary
+  /// entries — a user's own label is what they will recognise, even when a
+  /// barcode scan produced a longer or differently-capitalised version of the
+  /// same food.
+  Future<Iterable<FoodEntry>> _load(String query) async {
+    if (query.trim().isEmpty) return const [];
+    final db = await LocalDb.instance;
+    final past = await NutritionDb.searchPastEntries(db, query, limit: 15);
+    if (past.isNotEmpty) return past;
+    // Nothing from the log. Fall back to the dictionary — a barcode-scanned
+    // product the user never re-logged still lives there.
+    final defs = await NutritionDb.searchFoods(db, query, limit: 15);
+    return defs.map((d) => FoodEntry(
+          id: d['key'] as String? ?? '',
+          date: '',
+          meal: '',
+          label: d['label'] as String? ?? '',
+          foodKey: d['key'] as String?,
+          kcal: (d['kcal_100'] as num?)?.toDouble(),
+          proteinG: (d['protein_g_100'] as num?)?.toDouble(),
+          carbsG: (d['carbs_g_100'] as num?)?.toDouble(),
+          fatG: (d['fat_g_100'] as num?)?.toDouble(),
+          fibreG: (d['fibre_g_100'] as num?)?.toDouble(),
+          source: (d['source'] == 'barcode') ? FoodSource.barcode : FoodSource.manual,
+        ));
+  }
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final l = AppLocalizations.of(c);
+    return RawAutocomplete<FoodEntry>(
+      textEditingController: widget.controller,
+      focusNode: _focus,
+      optionsBuilder: (value) => _load(value.text),
+      displayStringForOption: (e) => e.label,
+      onSelected: widget.onSelected,
+      fieldViewBuilder: (c, ctrl, focus, onSubmit) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              (l?.logFoodWhatLabel ?? 'What').toUpperCase(),
+              style: F.over.copyWith(color: p.ink3),
+            ),
+            const SizedBox(height: S.x2),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: S.x3, vertical: S.x2),
+              decoration: BoxDecoration(
+                color: p.card,
+                borderRadius: R.rMd,
+                border: Border.all(color: p.line),
+              ),
+              child: Semantics(
+                label: l?.logFoodWhatLabel ?? 'What',
+                textField: true,
+                child: TextField(
+                  controller: ctrl,
+                  focusNode: focus,
+                  style: F.body.copyWith(color: p.ink),
+                  cursorColor: p.on(C.domFood),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    border: InputBorder.none,
+                    hintText: l?.logFoodWhatHint ?? 'Chicken and rice',
+                    hintStyle: F.body.copyWith(color: p.ink3),
+                    suffixIcon: Icon(LucideIcons.search, size: 16, color: p.ink3),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+      optionsViewBuilder: (c, onSelected, options) {
+        final entries = options.toList();
+        if (entries.isEmpty) return const SizedBox.shrink();
+        return Align(
+          alignment: Alignment.topLeft,
+          child: Material(
+            elevation: 4,
+            color: p.card,
+            shape: RoundedRectangleBorder(borderRadius: R.rMd),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 240, maxWidth: 320),
+              child: ListView.separated(
+                padding: const EdgeInsets.symmetric(vertical: S.x1),
+                shrinkWrap: true,
+                itemCount: entries.length,
+                separatorBuilder: (_, __) => Divider(height: 1, color: p.line),
+                itemBuilder: (_, i) {
+                  final e = entries[i];
+                  return _SuggestionTile(
+                    entry: e,
+                    onTap: () => onSelected(e),
+                  );
+                },
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// One row in the autocomplete dropdown. Shows the label, a source pill (Yours
+/// or Open Food Facts), and a summary of the macros if any are present — enough
+/// to disambiguate two different "Chicken rice" entries at a glance.
+class _SuggestionTile extends StatelessWidget {
+  const _SuggestionTile({required this.entry, required this.onTap});
+
+  final FoodEntry entry;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final l = AppLocalizations.of(c);
+    final summary = _macroSummary(entry);
+    return Pressable(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: S.x3, vertical: S.x2),
+        child: Row(
+          children: [
+            Icon(LucideIcons.utensils, size: 14, color: p.ink3),
+            const SizedBox(width: S.x2),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(entry.label, style: F.body.copyWith(color: p.ink)),
+                  if (summary != null)
+                    Text(summary, style: F.over.copyWith(color: p.ink3)),
+                ],
+              ),
+            ),
+            const SizedBox(width: S.x2),
+            Pill(
+              entry.source == FoodSource.barcode
+                  ? (l?.logFoodPillOpenFoodFacts ?? 'Open Food Facts')
+                  : (l?.logFoodPillYours ?? 'Yours'),
+              C.n400,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// A one-line summary of the macros, or null when the entry has none — a bare
+  /// occasion has no numbers to show, and the tile should not print "0 kcal".
+  static String? _macroSummary(FoodEntry e) {
+    if (e.kcal == null) return null;
+    final parts = <String>['${e.kcal!.round()} kcal'];
+    if (e.proteinG != null) parts.add('${e.proteinG!.round()}P');
+    if (e.carbsG != null) parts.add('${e.carbsG!.round()}C');
+    if (e.fatG != null) parts.add('${e.fatG!.round()}F');
+    return parts.join(' · ');
+  }
 }
 
 String _mealLabel(BuildContext c, String m) {

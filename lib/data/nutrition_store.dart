@@ -536,6 +536,26 @@ class NutritionDb {
     );
   }
 
+  /// Search past logged entries by label, newest first. Distinct by label —
+  /// the same chicken and rice typed ten times is one suggestion, not ten.
+  /// Each row carries the macros it was logged with, so tapping a suggestion
+  /// can fill the form without a second lookup.
+  static Future<List<FoodEntry>> searchPastEntries(
+    Database db,
+    String query, {
+    int limit = 25,
+  }) async {
+    final q = query.trim();
+    if (q.isEmpty) return const [];
+    final rows = await db.rawQuery(
+      'SELECT * FROM food_entry WHERE id IN '
+      '(SELECT MAX(id) FROM food_entry WHERE label LIKE ? GROUP BY label) '
+      'ORDER BY created_at DESC LIMIT ?',
+      ['%$q%', limit],
+    );
+    return [for (final r in rows) FoodEntry.fromRow(r)];
+  }
+
   /// One dictionary entry by key. The key for a scanned product is its
   /// barcode, which makes this table the barcode cache — a second scan of the
   /// same packet is a local read and no network request at all.
