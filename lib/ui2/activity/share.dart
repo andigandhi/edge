@@ -400,6 +400,15 @@ String? _paceOf(ActivityResult r, UnitsController? u) {
   return UnitsController.formatPace(secPerKm * perUnit);
 }
 
+/// The session's average speed in km/h (or mph for imperial), or null when
+/// there is no speed worth printing. For cycling activities.
+String? _speedOf(ActivityResult r, UnitsController? u) {
+  final secPerKm = r.paceSecPerKm;
+  if (secPerKm == null || secPerKm <= 0) return null;
+  final metersPerSec = 1000.0 / secPerKm;
+  return u?.speed(metersPerSec) ?? UnitsController.formatSpeed(metersPerSec);
+}
+
 /// The stats a card may print, in offer order — the public name for
 /// [_available], so the poster and the small card cannot drift apart about
 /// what a session measured.
@@ -416,33 +425,42 @@ List<(String, String)> shareStats(ActivityResult r, [UnitsController? u]) =>
 /// [u] is the reader's unit system, null in a golden (and at the one call site
 /// that only reads the stat NAMES, which no unit system changes) — metric is
 /// what the store holds, so that is what a card without one shows.
-List<(String, String)> _available(ActivityResult r, [UnitsController? u]) => [
-  ('Time', hms(r.duration)),
-  if (r.distanceKm != null)
-    (
-      'Distance',
-      u == null
-          ? '${r.distanceKm!.toStringAsFixed(2)} km'
-          : u.distance(r.distanceKm! * 1000)!,
-    ),
-  if (_paceOf(r, u) != null)
-    ('Pace', '${_paceOf(r, u)} /${u?.distanceUnit ?? 'km'}'),
-  // Bare, like Sets and Laps: the label already says what they are, and
-  // 'STEPS 8,412 steps' spends a cell saying it twice.
-  if (r.stepsCounted != null) ('Steps', grouped(r.stepsCounted!)),
-  if (r.avgHr != null) ('Heart rate', '${r.avgHr} bpm'),
-  // With its unit. A bare "612" on a card is a number nobody can read back.
-  if (r.calories != null) ('Calories', '${grouped(r.calories!)} kcal'),
-  if (r.gainM != null) ('Elevation', '+${r.gainM!.round()} m'),
-  if (r.strength.volumeKg != null)
-    (
+List<(String, String)> _available(ActivityResult r, [UnitsController? u]) {
+  final stats = <(String, String)>[
+    ('Time', hms(r.duration)),
+    if (r.distanceKm != null)
+      (
+        'Distance',
+        u == null
+            ? '${r.distanceKm!.toStringAsFixed(2)} km'
+            : u.distance(r.distanceKm! * 1000)!,
+      ),
+  ];
+  // Cycling shows speed (km/h); other distance activities show pace (min/km).
+  if (isCycling(r.activity)) {
+    final speed = _speedOf(r, u);
+    if (speed != null) stats.add(('Speed', speed));
+  } else {
+    final pace = _paceOf(r, u);
+    if (pace != null) {
+      stats.add(('Pace', '$pace /${u?.distanceUnit ?? 'km'}'));
+    }
+  }
+  if (r.stepsCounted != null) stats.add(('Steps', grouped(r.stepsCounted!)));
+  if (r.avgHr != null) stats.add(('Heart rate', '${r.avgHr} bpm'));
+  if (r.calories != null) stats.add(('Calories', '${grouped(r.calories!)} kcal'));
+  if (r.gainM != null) stats.add(('Elevation', '+${r.gainM!.round()} m'));
+  if (r.strength.volumeKg != null) {
+    stats.add((
       'Volume',
       '${grouped(u == null ? r.strength.volumeKg! : u.weightValue(r.strength.volumeKg!))} '
           '${u?.weightUnit ?? 'kg'}',
-    ),
-  if (!r.strength.isEmpty) ('Sets', '${r.strength.setCount}'),
-  if (r.lapCount != null) ('Laps', '${r.lapCount}'),
-];
+    ));
+  }
+  if (!r.strength.isEmpty) stats.add(('Sets', '${r.strength.setCount}'));
+  if (r.lapCount != null) stats.add(('Laps', '${r.lapCount}'));
+  return stats;
+}
 
 
 (String, String, String) _heroOf(ActivityResult r, UnitsController? u) {

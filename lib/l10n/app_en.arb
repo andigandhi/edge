@@ -10429,6 +10429,10 @@
   "@activitySummaryPace": {
     "description": "Column header for pace in the route splits table"
   },
+  "activitySummarySpeed": "SPEED",
+  "@activitySummarySpeed": {
+    "description": "Column header for speed in the route splits table (cycling activities)"
+  },
   "activitySummaryHr": "HR",
   "@activitySummaryHr": {
     "description": "Column header for average heart rate in the route splits table"

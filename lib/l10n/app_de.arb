@@ -2065,6 +2065,7 @@
   "activitySummaryNoSplitsBody": "Für Zwischenzeiten wird eine aufgezeichnete Distanz benötigt.",
   "activitySummaryKm": "KM",
   "activitySummaryPace": "TEMPO",
+  "activitySummarySpeed": "SPEED",
   "activitySummaryHr": "HF",
   "activitySummarySetsLoggedZero": "0 Sätze erfasst.",
   "activitySummaryRoundHeader": "R",

@@ -138,6 +138,19 @@ class UnitsController extends ChangeNotifier {
     return '${perHour.toStringAsFixed(decimals)} $speedUnit';
   }
 
+  /// Static speed formatter — like [formatPace], but for speed. Useful when
+  /// no UnitsController instance is available (e.g. in static contexts or
+  /// tests). Defaults to metric (km/h).
+  static String? formatSpeed(double? metersPerSec, {bool imperial = false, int decimals = 1}) {
+    if (metersPerSec == null || !metersPerSec.isFinite || metersPerSec < 0) {
+      return null;
+    }
+    final unitMeters = imperial ? _metersPerMile : _metersPerKm;
+    final unitLabel = imperial ? 'mph' : 'km/h';
+    final perHour = metersPerSec * 3600 / unitMeters;
+    return '${perHour.toStringAsFixed(decimals)} $unitLabel';
+  }
+
   /// Instantaneous pace from a live speed (m/s) → "5:30 /km" — the LIVE
   /// counterpart to [pace] (which needs a whole distance+duration). Used for
   /// a live "current pace" readout that updates every fix instead of only

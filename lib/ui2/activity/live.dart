@@ -914,7 +914,8 @@ Widget? _routeIssueCard(
 int? _kcal(Activity a, LiveFeed feed, double? weightKg, int elapsed) =>
     feed.calories ?? a.kcal(weightKg, (elapsed / 60).round());
 
-/// The distance/pace pair plus the common three-up, in the user's units.
+/// The distance/pace (or distance/speed for cycling) pair plus the common
+/// three-up, in the user's units.
 ///
 /// PACE IS OMITTED, never dashed, when there isn't one yet: at the start of a
 /// run a few metres of GPS jitter divided into real elapsed time reads as
@@ -929,17 +930,35 @@ List<Widget> _distanceStats(BuildContext ctx, P p, LiveFeed f, Activity a,
       ? null
       : (u == null ? meters / 1000 : u.distanceValue(meters));
   final unit = u?.distanceUnit ?? 'km';
-  final pacePerUnit = (meters == null || meters <= 0)
-      ? null
-      : UnitsController.formatPace(
+
+  // Cycling shows speed (km/h); other distance activities show pace (min/km).
+  final showSpeed = isCycling(a);
+  final stats = <(String, String)>[];
+
+  if (value != null) stats.add((value.toStringAsFixed(2), unit));
+
+  if (meters != null && meters > 0 && elapsed > 0) {
+    if (showSpeed) {
+      final metersPerSec = meters / elapsed;
+      final speedStr = u?.speed(metersPerSec) ?? UnitsController.formatSpeed(metersPerSec);
+      // speed() returns "18.4 km/h" — split into value and unit.
+      if (speedStr != null) {
+        final parts = speedStr.split(' ');
+        if (parts.length == 2) {
+          stats.add((parts[0], parts[1]));
+        }
+      }
+    } else {
+      final pacePerUnit = UnitsController.formatPace(
           elapsed / (u == null ? meters / 1000 : u.distanceValue(meters)));
-  return [
-    statRow(p, [
-      if (value != null) (value.toStringAsFixed(2), unit),
-      if (pacePerUnit != null) (pacePerUnit, '/$unit'),
-      ..._commonStats(ctx, a, f, weightKg, elapsed),
-    ].take(3).toList()),
-  ];
+      if (pacePerUnit != null) {
+        stats.add((pacePerUnit, '/$unit'));
+      }
+    }
+  }
+
+  stats.addAll(_commonStats(ctx, a, f, weightKg, elapsed));
+  return [statRow(p, stats.take(3).toList())];
 }
 
 /// "5.24 km" / "3.25 mi" for a distance already known to exist.

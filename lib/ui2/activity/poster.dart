@@ -600,6 +600,7 @@ IconData posterStatIcon(String name) => switch (name) {
       'Time' => LucideIcons.timer,
       'Distance' => LucideIcons.ruler,
       'Pace' => LucideIcons.gauge,
+      'Speed' => LucideIcons.gauge,
       'Steps' => LucideIcons.footprints,
       'Heart rate' => LucideIcons.heart,
       'Calories' => LucideIcons.flame,

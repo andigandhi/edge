@@ -77,6 +77,12 @@ const _journey = {
 /// find a pulse is the correct outcome, not a failure state to design around.
 const _thermal = {'Sauna', 'Cold plunge'};
 
+/// Cycling activities show speed (km/h) instead of pace (min/km). A cyclist
+/// reads "25.3 km/h" naturally; "2:22 /km" is what a runner says.
+const _cycling = {'Cycling', 'Mountain biking'};
+
+bool isCycling(Activity a) => _cycling.contains(a.name);
+
 /// Name first, then track. The named sets are the activities whose defining
 /// object is not what their tracking mode would suggest — a hike is tracked by
 /// distance but is *about* the climb, and swimming is tracked by distance but
@@ -554,7 +560,14 @@ List<(String, String)> sessionStats(ActivityResult r, UnitsController? u) {
   add('Time', hms(r.duration));
   switch (r.arch) {
     case Arch.route:
-      add('Pace', pace == null ? null : '$pace /$distanceUnit');
+      // Cycling reads more naturally as speed (km/h) than pace (min/km).
+      if (isCycling(r.activity) && secPerKm != null && secPerKm > 0) {
+        final metersPerSec = 1000.0 / secPerKm;
+        final speedStr = u?.speed(metersPerSec) ?? UnitsController.formatSpeed(metersPerSec);
+        add('Speed', speedStr);
+      } else {
+        add('Pace', pace == null ? null : '$pace /$distanceUnit');
+      }
     case Arch.strength:
       // Guarded like Arch.match below. 'SETS 0' and 'REPS 0' used to sit
       // directly under the card saying nothing was logged, and the share card
@@ -1872,10 +1885,24 @@ class _ActivitySummaryState extends State<ActivitySummary> {
         final paces = <double?>[
           for (final s in r.splits) s.km <= 0 ? null : s.sec / s.km,
         ];
-        final measured = [for (final v in paces) ?v];
-        final fastest = measured.isEmpty
+        // Cycling shows speed instead of pace. Compute meters-per-second so
+        // UnitsController can format in the user's unit system (km/h or mph).
+        final speedsMps = <double?>[
+          for (final s in r.splits) s.km <= 0 || s.sec <= 0 ? null : (s.km * 1000) / s.sec,
+        ];
+        final showSpeed = isCycling(r.activity);
+        // For comparison, convert speeds to the display unit so we compare apples to apples.
+        final u = _u;
+        final displaySpeeds = <double?>[
+          for (final mps in speedsMps) mps == null ? null : (u == null ? mps * 3.6 : mps * 3600 / u.distanceUnitMeters),
+        ];
+        final measured = [for (final v in (showSpeed ? displaySpeeds : paces)) ?v];
+        // For pace: lower is better, so fastest = minimum. For speed: higher is better, so fastest = maximum.
+        final bestValue = measured.isEmpty
             ? null
-            : measured.reduce((x, y) => x < y ? x : y);
+            : (showSpeed
+                ? measured.reduce((x, y) => x > y ? x : y)  // max for speed
+                : measured.reduce((x, y) => x < y ? x : y)); // min for pace
         // SPLITS STAY PER-KILOMETRE in either unit system, and the header says
         // so. The route tracker cuts them at each kilometre (`route.splitsKm`);
         // showing them as miles would mean re-cutting the route, which is a
@@ -1892,7 +1919,10 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                         style: F.over.copyWith(color: p.ink3))),
                 SizedBox(
                     width: 46,
-                    child: Text(l?.activitySummaryPace ?? 'PACE',
+                    child: Text(
+                        showSpeed
+                            ? (l?.activitySummarySpeed ?? 'SPEED')
+                            : (l?.activitySummaryPace ?? 'PACE'),
                         style: F.over.copyWith(color: p.ink3))),
                 const Expanded(child: SizedBox()),
                 SizedBox(
@@ -1918,15 +1948,24 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                     SizedBox(
                         width: 46,
                         child: Text(
-                            paces[i] == null
-                                ? ''
-                                : UnitsController.formatPace(paces[i]!) ?? '',
+                            showSpeed
+                                ? (speedsMps[i] == null
+                                    ? ''
+                                    : (u == null
+                                        ? UnitsController.formatSpeed(speedsMps[i])
+                                        : u.speed(speedsMps[i]))?.split(' ').first ?? '')
+                                : (paces[i] == null ? '' : UnitsController.formatPace(paces[i]!) ?? ''),
                             style: F.cap.copyWith(
                                 color: p.ink, fontWeight: FontWeight.w600))),
                     Expanded(
-                        child: fastest == null || paces[i] == null
+                        child: bestValue == null ||
+                                (showSpeed ? displaySpeeds[i] == null : paces[i] == null)
                             ? const SizedBox()
-                            : PaceBar(fastest / paces[i]!, C.green)),
+                            : PaceBar(
+                                showSpeed
+                                    ? (displaySpeeds[i]! / bestValue)  // For speed: current/best (higher = better)
+                                    : (bestValue / paces[i]!),  // For pace: best/current (lower = better)
+                                C.green)),
                     SizedBox(
                         width: 34,
                         child: Text(r.splits[i].avgHr?.toString() ?? '',
